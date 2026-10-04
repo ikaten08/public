@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>音声入力SOAPノート</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- ヘッダー -->
+    <header class="app-header">
+      <div class="header-inner">
+        <div class="logo-area">
+          <div class="logo-icon">🎙️</div>
+          <div>
+            <h1 class="app-title">音声入力SOAPノート</h1>
+            <p class="app-subtitle">医療・介護・リハビリ向け 音声認識 ＆ 自動分類アシスタント</p>
+          </div>
+        </div>
+        <div class="header-actions">
+          <button id="btnSample" class="btn btn-outline" title="サンプルテキストを入力して動作を確認できます">
+            📝 サンプル読込
+          </button>
+          <button id="btnClear" class="btn btn-outline-danger" title="すべてのテキストをクリアします">
+            🗑️ クリア
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <!-- メインコンテンツ -->
+    <main class="main-content">
+      <!-- ブラウザ非対応アラート -->
+      <div id="unsupportedAlert" class="alert alert-warning" style="display: none;">
+        ⚠️ お使いのブラウザは音声認識（Web Speech API）に対応していません。Google ChromeやMicrosoft Edge、Safari等の最新版ブラウザをご利用ください。（※手入力によるSOAP変換は利用可能です）
+      </div>
+
+      <!-- 入力セクション -->
+      <section class="card input-section">
+        <div class="card-header">
+          <div class="header-with-badge">
+            <h2 class="card-title">音声入力・テキスト入力</h2>
+            <span id="recordingStatusBadge" class="status-badge status-idle">待機中</span>
+          </div>
+          <span class="text-counter" id="charCounter">0 文字</span>
+        </div>
+
+        <div class="card-body">
+          <!-- コントロールバー -->
+          <div class="control-bar">
+            <div class="btn-group">
+              <button id="btnStartRecord" class="btn btn-primary btn-record">
+                <span class="record-icon pulse-animation"></span>
+                <span>録音開始</span>
+              </button>
+              <button id="btnStopRecord" class="btn btn-secondary" disabled>
+                ⏹️ 録音停止
+              </button>
+            </div>
+
+            <div class="convert-group">
+              <button id="btnConvertSoap" class="btn btn-success btn-convert">
+                ⚡ SOAP変換
+              </button>
+            </div>
+          </div>
+
+          <!-- 音声波形アニメーション（録音中のみ表示） -->
+          <div id="visualizerContainer" class="visualizer-container" style="display: none;">
+            <div class="wave-bar"></div>
+            <div class="wave-bar"></div>
+            <div class="wave-bar"></div>
+            <div class="wave-bar"></div>
+            <div class="wave-bar"></div>
+            <span class="recording-hint">音声を聞き取っています...（句読点を含めて話すと高精度に分類されます）</span>
+          </div>
+
+          <!-- テキストエリア -->
+          <div class="textarea-wrapper">
+            <textarea
+              id="rawTextarea"
+              class="raw-textarea"
+              placeholder="「録音開始」を押して話すか、直接テキストを入力してください...&#10;&#10;例:「右肩を動かすと痛いと訴えがある。肩関節外転ROMは80度、MMTは3レベル。腱板断裂による可動域制限と筋力低下が考えられる。週2回の自主トレ指導と理学療法プログラムを実施する。」"
+              rows="6"
+            ></textarea>
+            <!-- リアルタイム中間結果プレビュー -->
+            <div id="interimResult" class="interim-preview" style="display: none;"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- SOAP出力セクション -->
+      <section class="soap-output-section">
+        <div class="soap-header-row">
+          <h2 class="section-title">SOAP分類結果</h2>
+          <div class="soap-actions">
+            <button id="btnCopyAll" class="btn btn-outline" title="整形されたSOAPテキスト全体をコピー">
+              📋 まとめてコピー
+            </button>
+          </div>
+        </div>
+
+        <!-- 4分割グリッド + 未分類 -->
+        <div class="soap-grid">
+          <!-- S: 主観的情報 -->
+          <div class="soap-card card-s">
+            <div class="soap-card-header">
+              <div class="soap-badge-wrapper">
+                <span class="soap-badge badge-s">S</span>
+                <span class="soap-name">Subjective（主観的情報）</span>
+              </div>
+              <button class="btn-copy-card" data-target="s" title="Sの内容をコピー">コピー</button>
+            </div>
+            <div class="soap-card-desc">患者の訴え、自覚症状、気分の変化など</div>
+            <div id="listS" class="soap-item-list" data-category="S">
+              <div class="empty-state">該当する文はありません</div>
+            </div>
+          </div>
+
+          <!-- O: 客観的情報 -->
+          <div class="soap-card card-o">
+            <div class="soap-card-header">
+              <div class="soap-badge-wrapper">
+                <span class="soap-badge badge-o">O</span>
+                <span class="soap-name">Objective（客観的情報）</span>
+              </div>
+              <button class="btn-copy-card" data-target="o" title="Oの内容をコピー">コピー</button>
+            </div>
+            <div class="soap-card-desc">バイタル、検査測定値（ROM/MMT）、観察所見など</div>
+            <div id="listO" class="soap-item-list" data-category="O">
+              <div class="empty-state">該当する文はありません</div>
+            </div>
+          </div>
+
+          <!-- A: 評価・分析 -->
+          <div class="soap-card card-a">
+            <div class="soap-card-header">
+              <div class="soap-badge-wrapper">
+                <span class="soap-badge badge-a">A</span>
+                <span class="soap-name">Assessment（評価・分析）</span>
+              </div>
+              <button class="btn-copy-card" data-target="a" title="Aの内容をコピー">コピー</button>
+            </div>
+            <div class="soap-card-desc">SやOの分析、原因推測、課題、リスク評価など</div>
+            <div id="listA" class="soap-item-list" data-category="A">
+              <div class="empty-state">該当する文はありません</div>
+            </div>
+          </div>
+
+          <!-- P: 計画 -->
+          <div class="soap-card card-p">
+            <div class="soap-card-header">
+              <div class="soap-badge-wrapper">
+                <span class="soap-badge badge-p">P</span>
+                <span class="soap-name">Plan（計画・方針）</span>
+              </div>
+              <button class="btn-copy-card" data-target="p" title="Pの内容をコピー">コピー</button>
+            </div>
+            <div class="soap-card-desc">今後の治療方針、リハビリプログラム、指導内容など</div>
+            <div id="listP" class="soap-item-list" data-category="P">
+              <div class="empty-state">該当する文はありません</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 未分類セクション -->
+        <div class="soap-card card-unclassified" id="unclassifiedContainer" style="margin-top: 1.25rem;">
+          <div class="soap-card-header">
+            <div class="soap-badge-wrapper">
+              <span class="soap-badge badge-u">？</span>
+              <span class="soap-name">未分類（キーワード非該当文）</span>
+            </div>
+            <button class="btn-copy-card" data-target="u" title="未分類の内容をコピー">コピー</button>
+          </div>
+          <div class="soap-card-desc">各文右側のセレクトボックスから手動でS・O・A・Pに振り分け可能です</div>
+          <div id="listU" class="soap-item-list" data-category="U">
+            <div class="empty-state">未分類の文はありません</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ガイド・キーワード説明 -->
+      <section class="card keywords-guide-section">
+        <h3 class="guide-title">💡 キーワード振り分け基準</h3>
+        <div class="keywords-legend-grid">
+          <div class="legend-item legend-s">
+            <strong>S（主観的情報）</strong>
+            <p>痛い、つらい、しびれる、だるい、動かしにくい、不安、眠れない、訴え、違和感 など</p>
+          </div>
+          <div class="legend-item legend-o">
+            <strong>O（客観的情報）</strong>
+            <p>ROM、MMT、度、cm、kg、mmHg、秒、歩行、握力、バイタル、腫脹、熱感、発赤、血圧 など</p>
+          </div>
+          <div class="legend-item legend-a">
+            <strong>A（評価）</strong>
+            <p>考えられる、原因、問題、改善、低下、制限、リスク、評価、考察、悪化 など</p>
+          </div>
+          <div class="legend-item legend-p">
+            <strong>P（計画）</strong>
+            <p>プログラム、目標、実施、継続、指導、週、セット、退院、自主トレ、次回 など</p>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- フッター -->
+    <footer class="app-footer">
+      <p>© 音声入力SOAPノート - ブラウザ標準 Web Speech API 搭載</p>
+    </footer>
+
+    <!-- トースト通知 -->
+    <div id="toastNotification" class="toast-notification">クリップボードにコピーしました</div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
